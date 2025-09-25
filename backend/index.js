@@ -34,7 +34,7 @@ app.get("/", (req, res) => {
 });
 
 app.get("/api/todos", (req, res) => {
-  let { page = 1, limit = 5, status, from, to, search } = req.query;
+  let { page = 1, limit = 5, status, from, to, search, sort } = req.query;
   page = parseInt(page) || 1;
   limit = parseInt(limit) || 5;
   let filtered = todos;
@@ -42,7 +42,17 @@ app.get("/api/todos", (req, res) => {
   if (from) filtered = filtered.filter(t => t.dueDate && t.dueDate >= from);
   if (to) filtered = filtered.filter(t => t.dueDate && t.dueDate <= to);
   if (search) filtered = filtered.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
-  filtered = filtered.sort((a, b) => b.createdAt - a.createdAt);
+  
+  // Apply sorting
+  if (sort === "status") {
+    // Sort by status: doing -> todo -> done
+    const statusOrder = { doing: 0, todo: 1, done: 2 };
+    filtered = filtered.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+  } else {
+    // Default sort by creation date (newest first)
+    filtered = filtered.sort((a, b) => b.createdAt - a.createdAt);
+  }
+  
   const total = filtered.length;
   const items = filtered.slice((page-1)*limit, page*limit);
   res.json({ items, total });
