@@ -6,6 +6,10 @@ import EditModal from "./components/EditModal";
 import ConfirmModal from "./components/ConfirmModal";
 import DatePicker from "./components/DatePicker";
 import Calendar from "./components/Calendar";
+import LoginPage from "./components/LoginPage";
+import UserProfile from "./components/UserProfile";
+import ProtectedRoute from "./components/ProtectedRoute";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
 
 const API = import.meta.env.VITE_API || "http://localhost:4000/api";
 
@@ -16,6 +20,15 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json'
   }
+});
+
+// Add auth interceptor
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
 const STATUS = ["todo", "doing", "done"];
 
@@ -41,7 +54,17 @@ function toISODateString(date) {
 }
 
 
-export default function App() {
+function AppContent() {
+  const { isAuthenticated } = useAuth();
+  
+  if (!isAuthenticated) {
+    return <LoginPage />;
+  }
+
+  return <TaskApp />;
+}
+
+function TaskApp() {
   const [form, setForm] = useState({ title: "", status: "todo", dueDate: "" });
   const [query, setQuery] = useState({ search: "", status: "", from: "", to: "", page: 1, limit: 7, sort: "status" });
   // Local filters to avoid locking inputs while loading
@@ -127,11 +150,20 @@ export default function App() {
       const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
       endOfMonth.setHours(23, 59, 59, 999);
 
+      console.log('📊 Loading detailed stats...');
+      console.log('📅 Today range:', toISODateString(todayStart), 'to', toISODateString(todayEnd));
+      console.log('📅 Week range:', toISODateString(startOfWeek), 'to', toISODateString(endOfWeek));
+      console.log('📅 Month range:', toISODateString(startOfMonth), 'to', toISODateString(endOfMonth));
+
       const [todayRes, weekRes, monthRes] = await Promise.all([
         api.get(`/tasks/stats?from=${toISODateString(todayStart)}&to=${toISODateString(todayEnd)}`),
         api.get(`/tasks/stats?from=${toISODateString(startOfWeek)}&to=${toISODateString(endOfWeek)}`),
         api.get(`/tasks/stats?from=${toISODateString(startOfMonth)}&to=${toISODateString(endOfMonth)}`)
       ]);
+      
+      console.log('📊 Today stats:', todayRes.data);
+      console.log('📊 Week stats:', weekRes.data);
+      console.log('📊 Month stats:', monthRes.data);
 
       setDetailedStats({
         today: todayRes.data,
@@ -149,17 +181,61 @@ export default function App() {
       setLoading(true);
       setError(null);
       try {
-        const [listRes, statsRes] = await Promise.all([
-          api.get(`/tasks${buildQuery(query)}`),
+        // Get ALL tasks (no pagination) for proper sorting
+        const allTasksQuery = { ...query };
+        delete allTasksQuery.page;
+        delete allTasksQuery.limit;
+        allTasksQuery.limit = 1000; // Get all tasks
+        
+        const [allTasksRes, statsRes] = await Promise.all([
+          api.get(`/tasks${buildQuery(allTasksQuery)}`),
           api.get('/tasks/stats'),
         ]);
+        
         if (!ignore) {
-          setData(listRes.data);
+          // Sort ALL items by status (doing -> todo -> done), then by due date (ascending), then by title (A-Z)
+          const allSortedItems = (allTasksRes.data.items || []).sort((a, b) => {
+            // Status order: doing (0) -> todo (1) -> done (2)
+            const statusOrder = { doing: 0, todo: 1, done: 2 };
+            const statusA = statusOrder[a.status] ?? 3;
+            const statusB = statusOrder[b.status] ?? 3;
+            
+            if (statusA !== statusB) {
+              return statusA - statusB;
+            }
+            
+            // If same status, sort by due date (ascending - earliest first)
+            const dateA = a.dueDate ? new Date(a.dueDate) : new Date('9999-12-31');
+            const dateB = b.dueDate ? new Date(b.dueDate) : new Date('9999-12-31');
+            
+            if (dateA.getTime() !== dateB.getTime()) {
+              return dateA.getTime() - dateB.getTime();
+            }
+            
+            // If same due date, sort by title (A-Z)
+            return a.title.localeCompare(b.title);
+          });
+          
+          // Apply frontend pagination to sorted items
+          const page = query.page || 1;
+          const limit = query.limit || 7;
+          const startIndex = (page - 1) * limit;
+          const endIndex = startIndex + limit;
+          const paginatedItems = allSortedItems.slice(startIndex, endIndex);
+          
+          setData({ 
+            items: paginatedItems, 
+            total: allSortedItems.length, 
+            page: page, 
+            limit: limit 
+          });
           setStats(statsRes.data);
           // Load detailed stats
           await loadDetailedStats();
         }
       } catch (e) {
+        console.error('❌ Error fetching data:', e);
+        console.error('❌ Error response:', e.response?.data);
         if (!ignore) setError(e.response?.data?.message || e.message);
       } finally {
         if (!ignore) setLoading(false);
@@ -190,21 +266,64 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      await api.post('/tasks', {
+      console.log('➕ Creating task:', { title: form.title, status: form.status, dueDate: form.dueDate });
+      
+      const createRes = await api.post('/tasks', {
         title: form.title,
         status: form.status,
         dueDate: form.dueDate || null,
       });
+      
+      console.log('✅ Task created successfully:', createRes.data);
+      
       setForm({ title: "", status: "todo", dueDate: "" });
       // Don't reset page to 1 after adding task - keep current page
       // setQuery(q => ({ ...q, page: 1 }));
       
       // Reload data to show new task immediately
-      const [listRes, statsRes] = await Promise.all([
-        api.get(`/tasks${buildQuery(query)}`),
+      const allTasksQuery = { ...query };
+      delete allTasksQuery.page;
+      delete allTasksQuery.limit;
+      allTasksQuery.limit = 1000; // Get all tasks
+      
+      const [allTasksRes, statsRes] = await Promise.all([
+        api.get(`/tasks${buildQuery(allTasksQuery)}`),
         api.get('/tasks/stats'),
       ]);
-      setData(listRes.data);
+      
+      // Apply same sorting logic
+      const allSortedItems = (allTasksRes.data.items || []).sort((a, b) => {
+        const statusOrder = { doing: 0, todo: 1, done: 2 };
+        const statusA = statusOrder[a.status] ?? 3;
+        const statusB = statusOrder[b.status] ?? 3;
+        
+        if (statusA !== statusB) {
+          return statusA - statusB;
+        }
+        
+        const dateA = a.dueDate ? new Date(a.dueDate) : new Date('9999-12-31');
+        const dateB = b.dueDate ? new Date(b.dueDate) : new Date('9999-12-31');
+        
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateA.getTime() - dateB.getTime();
+        }
+        
+        return a.title.localeCompare(b.title);
+      });
+      
+      // Apply frontend pagination to sorted items
+      const page = query.page || 1;
+      const limit = query.limit || 7;
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedItems = allSortedItems.slice(startIndex, endIndex);
+      
+      setData({ 
+        items: paginatedItems, 
+        total: allSortedItems.length, 
+        page: page, 
+        limit: limit 
+      });
       setStats(statsRes.data);
       await loadDetailedStats();
       
@@ -252,7 +371,52 @@ export default function App() {
     setError(null);
     try {
       await api.patch(`/tasks/${id}`, updatedData);
-      setData(d => ({ ...d, items: d.items.map(t => t._id === id ? { ...t, ...updatedData } : t) }));
+      
+      // Reload data from server to get updated list with proper sorting
+      const allTasksQuery = { ...query };
+      delete allTasksQuery.page;
+      delete allTasksQuery.limit;
+      allTasksQuery.limit = 1000; // Get all tasks
+      
+      const [allTasksRes, statsRes] = await Promise.all([
+        api.get(`/tasks${buildQuery(allTasksQuery)}`),
+        api.get('/tasks/stats'),
+      ]);
+      
+      // Apply same sorting logic
+      const allSortedItems = (allTasksRes.data.items || []).sort((a, b) => {
+        const statusOrder = { doing: 0, todo: 1, done: 2 };
+        const statusA = statusOrder[a.status] ?? 3;
+        const statusB = statusOrder[b.status] ?? 3;
+        
+        if (statusA !== statusB) {
+          return statusA - statusB;
+        }
+        
+        const dateA = a.dueDate ? new Date(a.dueDate) : new Date('9999-12-31');
+        const dateB = b.dueDate ? new Date(b.dueDate) : new Date('9999-12-31');
+        
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateA.getTime() - dateB.getTime();
+        }
+        
+        return a.title.localeCompare(b.title);
+      });
+      
+      // Apply frontend pagination to sorted items
+      const page = query.page || 1;
+      const limit = query.limit || 7;
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedItems = allSortedItems.slice(startIndex, endIndex);
+      
+      setData({ 
+        items: paginatedItems, 
+        total: allSortedItems.length, 
+        page: page, 
+        limit: limit 
+      });
+      setStats(statsRes.data);
       
       // Reload detailed statistics
       await loadDetailedStats();
@@ -277,11 +441,49 @@ export default function App() {
       await api.patch(`/tasks/${id}`, { status });
       
       // Reload data from server to get updated list with proper sorting
-      const [listRes, statsRes] = await Promise.all([
-        api.get(`/tasks${buildQuery(query)}`),
+      const allTasksQuery = { ...query };
+      delete allTasksQuery.page;
+      delete allTasksQuery.limit;
+      allTasksQuery.limit = 1000; // Get all tasks
+      
+      const [allTasksRes, statsRes] = await Promise.all([
+        api.get(`/tasks${buildQuery(allTasksQuery)}`),
         api.get('/tasks/stats'),
       ]);
-      setData(listRes.data);
+      
+      // Apply same sorting logic
+      const allSortedItems = (allTasksRes.data.items || []).sort((a, b) => {
+        const statusOrder = { doing: 0, todo: 1, done: 2 };
+        const statusA = statusOrder[a.status] ?? 3;
+        const statusB = statusOrder[b.status] ?? 3;
+        
+        if (statusA !== statusB) {
+          return statusA - statusB;
+        }
+        
+        const dateA = a.dueDate ? new Date(a.dueDate) : new Date('9999-12-31');
+        const dateB = b.dueDate ? new Date(b.dueDate) : new Date('9999-12-31');
+        
+        if (dateA.getTime() !== dateB.getTime()) {
+          return dateA.getTime() - dateB.getTime();
+        }
+        
+        return a.title.localeCompare(b.title);
+      });
+      
+      // Apply frontend pagination to sorted items
+      const page = query.page || 1;
+      const limit = query.limit || 7;
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+      const paginatedItems = allSortedItems.slice(startIndex, endIndex);
+      
+      setData({ 
+        items: paginatedItems, 
+        total: allSortedItems.length, 
+        page: page, 
+        limit: limit 
+      });
       setStats(statsRes.data);
       
       // Reload detailed statistics
@@ -330,9 +532,17 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl px-2 sm:px-4 py-4 sm:py-6">
-        <div className="mb-4 sm:mb-6 text-center">
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">TaskNet</h1>
-          <p className="mt-1 sm:mt-2 text-sm sm:text-base text-slate-600">Manage your tasks efficiently</p>
+        <div className="mb-4 sm:mb-6">
+          <div className="flex justify-between items-center">
+            <div className="flex-1"></div>
+            <div className="text-center">
+              <h1 className="text-2xl sm:text-3xl font-bold text-slate-800">TaskNet</h1>
+              <p className="mt-1 sm:mt-2 text-sm sm:text-base text-slate-600">Manage your tasks efficiently</p>
+            </div>
+            <div className="flex-1 flex justify-end">
+              <UserProfile />
+            </div>
+          </div>
           
           {/* View Toggle Button */}
           <div className="mt-4 flex justify-center">
@@ -703,8 +913,8 @@ export default function App() {
                         <th className="px-2 sm:px-4 py-2 text-left text-xs sm:text-sm font-medium text-slate-700" style={{ width: '120px' }}>Status</th>
                         <th className="px-2 sm:px-4 py-2 text-left text-xs sm:text-sm font-medium text-slate-700" style={{ width: '120px' }}>Due date</th>
                         <th className="px-2 sm:px-4 py-2 text-left text-xs sm:text-sm font-medium text-slate-700" style={{ width: 'auto', minWidth: 'fit-content' }}>Actions</th>
-                    </tr>
-                  </thead>
+                      </tr>
+                    </thead>
                   <tbody>
                     {data.items.length === 0 ? (
                         <tr>
@@ -722,7 +932,7 @@ export default function App() {
                                 {t.status}
                               </span>
                         </td>
-                    <td className="px-2 sm:px-4 py-2 align-top text-xs sm:text-sm text-slate-700" style={{ width: '120px' }}>{t.dueDate ? (() => { const d = new Date(t.dueDate); const dd = String(d.getDate()).padStart(2, "0"); const mm = String(d.getMonth() + 1).padStart(2, "0"); const yyyy = d.getFullYear(); return `${dd}/${mm}/${yyyy}`; })() : "-"}</td>
+                        <td className="px-2 sm:px-4 py-2 align-top text-xs sm:text-sm text-slate-700" style={{ width: '120px' }}>{t.dueDate ? (() => { const d = new Date(t.dueDate); const dd = String(d.getDate()).padStart(2, "0"); const mm = String(d.getMonth() + 1).padStart(2, "0"); const yyyy = d.getFullYear(); return `${dd}/${mm}/${yyyy}`; })() : "-"}</td>
                             <td className="px-2 sm:px-4 py-2 align-top" style={{ width: 'auto', minWidth: 'fit-content' }}>
                               <div className="flex flex-wrap items-center gap-1 sm:gap-2">
                                 <button
@@ -764,7 +974,7 @@ export default function App() {
                                   Delete
                                 </button>
                               </div>
-                        </td>
+                            </td>
                       </tr>
                         ))
                       )}
@@ -836,5 +1046,13 @@ export default function App() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }
