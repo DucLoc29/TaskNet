@@ -2,6 +2,15 @@
 
 TaskNet là một ứng dụng quản lý công việc hiện đại được xây dựng bằng React và Node.js. Ứng dụng cho phép người dùng tạo, chỉnh sửa và theo dõi các công việc của mình một cách hiệu quả.
 
+## 👥 Thành viên thực hiện
+
+- Nguyễn Đức Lộc – N22DCCN150
+
+## 🚀 Demo
+
+- Frontend (Vercel): https://task-net-mu.vercel.app/
+- Backend (Render): https://tasknet.onrender.com  
+
 ## Tính năng chính
 
 ### 🔐 Đăng nhập
