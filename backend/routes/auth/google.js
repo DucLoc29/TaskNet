@@ -8,11 +8,32 @@ import User from "../../models/user.js";
 
 const router = express.Router();
 
+
+const DEFAULT_BASE =
+  process.env.RENDER_EXTERNAL_URL || `http://localhost:${process.env.PORT || 4000}`;
+
+const BASE_URL =
+  process.env.PUBLIC_URL?.replace(/\/$/, "") ||
+  DEFAULT_BASE.replace(/\/$/, "");
+
+
+const CALLBACK_URL =
+  (process.env.GOOGLE_CALLBACK_URL &&
+    process.env.GOOGLE_CALLBACK_URL.replace(/\/$/, "")) ||
+  `${BASE_URL}/api/auth/google/callback`;
+
+
+const FRONTEND_URL =
+  (process.env.FRONTEND_URL && process.env.FRONTEND_URL.replace(/\/$/, "")) ||
+  "http://localhost:5173";
+
 passport.use(new GoogleStrategy(
   {
     clientID: process.env.GOOGLE_CLIENT_ID || "dummy-client-id",
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || "dummy-client-secret",
-    callbackURL: "/api/auth/google/callback",
+    callbackURL: CALLBACK_URL,
+    //callbackURL: "/api/auth/google/callback",
+    proxy: true,
   },
   async (_at, _rt, profile, done) => {
     try {
