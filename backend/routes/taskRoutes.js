@@ -56,7 +56,7 @@ router.get("/tasks", async (req, res) => {
     const total = await Task.countDocuments(filter);
 
     if (sort === "status") {
-      // doing -> todo -> done (dùng aggregation)
+      // doing -> todo -> done, then by dueDate (ascending), then by title (A-Z)
       const items = await Task.aggregate([
         { $match: filter },
         {
@@ -71,12 +71,26 @@ router.get("/tasks", async (req, res) => {
                 default: 3,
               },
             },
+            // Convert dueDate to Date for proper sorting
+            dueDateSort: {
+              $cond: {
+                if: { $eq: [{ $type: "$dueDate" }, "string"] },
+                then: { $dateFromString: { dateString: "$dueDate" } },
+                else: "$dueDate"
+              }
+            }
           },
         },
-        { $sort: { statusOrder: 1, createdAt: -1 } },
+        { 
+          $sort: { 
+            statusOrder: 1,           // doing -> todo -> done
+            dueDateSort: 1,           // ngày từ bé đến lớn
+            title: 1                  // tên A-Z
+          } 
+        },
         { $skip: (page - 1) * limit },
         { $limit: limit },
-        { $project: { statusOrder: 0 } },
+        { $project: { statusOrder: 0, dueDateSort: 0 } },
       ]);
       return res.json({ items, total, page, limit });
     }
@@ -247,3 +261,4 @@ router.get("/tasks/stats", async (req, res) => {
 });
 
 export default router;
+
