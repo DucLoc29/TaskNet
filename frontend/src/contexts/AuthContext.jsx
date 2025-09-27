@@ -51,10 +51,22 @@ export const AuthProvider = ({ children }) => {
       console.log('Received message:', event.origin, event.data);
       
       // Allow messages from backend origin
-      if (event.origin !== 'http://localhost:4000' && event.origin !== window.location.origin) {
+      // if (event.origin !== 'http://localhost:4000' && event.origin !== window.location.origin) {
+      //   console.log('Origin not allowed:', event.origin);
+      //   return;
+      // }
+      
+      const allowedOrigins = new Set([
+        new URL(import.meta.env.VITE_API || "http://localhost:4000").origin,
+        window.location.origin
+      ]);
+
+      if (!allowedOrigins.has(event.origin)) {
         console.log('Origin not allowed:', event.origin);
         return;
       }
+
+
       
       if (event.data.type === 'GOOGLE_AUTH_SUCCESS') {
         console.log('Auth success received:', event.data);
