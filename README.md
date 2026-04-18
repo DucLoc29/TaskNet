@@ -2,34 +2,34 @@
 
 TaskNet là một ứng dụng quản lý công việc hiện đại được xây dựng bằng React và Node.js. Ứng dụng cho phép người dùng tạo, chỉnh sửa và theo dõi các công việc của mình một cách hiệu quả.
 
-## 👥 Thành viên thực hiện
+## Thành viên thực hiện
 
-- Nguyễn Đức Lộc – N22DCCN150
+- Nguyễn Đức Lộc 
 
-## 🚀 Demo
+## Demo
 
 - Frontend (Vercel): https://task-net-mu.vercel.app/
 - Backend (Render): https://tasknet.onrender.com  
 
 ## Tính năng chính
 
-### 🔐 Đăng nhập
+### Đăng nhập
 - Đăng nhập bằng tài khoản Google
 - Bảo mật với JWT token
 - Mỗi người dùng chỉ thấy công việc của riêng mình
 
-### 📋 Quản lý công việc
+### Quản lý công việc
 - Tạo, chỉnh sửa, xóa công việc
 - Theo dõi trạng thái: Todo → Doing → Done
 - Đặt ngày hết hạn cho công việc
 - Tìm kiếm và lọc công việc theo trạng thái, ngày tháng, từ khóa
 
-### 📅 Xem lịch
+### Xem lịch
 - Xem công việc dưới dạng bảng
 - Xem công việc trên lịch tháng
 - Sắp xếp thông minh: Trạng thái → Ngày hết hạn → Tên công việc
 
-### 📊 Thống kê
+### Thống kê
 - Thống kê công việc hôm nay, tuần này, tháng này
 - Thanh tiến độ trực quan
 - Phân tích hoàn thành công việc
